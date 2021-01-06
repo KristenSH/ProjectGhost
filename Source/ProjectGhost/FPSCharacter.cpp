@@ -1,7 +1,6 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "FPSCharacter.h"
-//#include "FPSProjectile.h"
 #include "ProjectGhost.h"
 
 // Sets default values
@@ -46,11 +45,6 @@ AFPSCharacter::AFPSCharacter()
 void AFPSCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT("We are using this character!"));
-	}
-
 }
 
 // Called every frame
