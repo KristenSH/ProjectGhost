@@ -5,10 +5,19 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Components/CapsuleComponent.h"
-#include "FPSProjectile.h"
+#include "HealthComponent.h"
+#include "Weapon.h"
+#include "Net/UnrealNetwork.h"
 #include "FPSCharacter.generated.h"
+
+class AWeapon;
+class USpringArmComponent;
+class UHealthComponent;
 
 UCLASS()
 class PROJECTGHOST_API AFPSCharacter : public ACharacter
@@ -22,6 +31,40 @@ public:
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+
+	void BeginCrouch();
+
+	void EndCrouch();
+
+	// Zoom properties
+	bool canZoom;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Player")
+		float ZoomedFOV;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Player", meta = (ClampMin = 0.1, ClampMax = 100))
+		float ZoomedInterpSpeed;
+
+	float DefaultFOV;
+
+	void BeginZoom();
+
+	void EndZoom();
+
+	UPROPERTY(Replicated)
+		AWeapon* CurrentWeapon;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Player")
+		TSubclassOf<AWeapon> StarterWeaponClass;
+
+	UPROPERTY(VisibleDefaultsOnly, Category = "Player")
+		FName WeaponAttachSocketName;
+
+	UFUNCTION()
+		void OnHealthChanged(UHealthComponent* OwningHealthComp, float Health, float HealtDelta, const class UDamageType* DamageType, class AController* InstigatedBy, AActor* DamageCauser);
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Player")
+		bool Died;
 
 public:
 	// Called every frame
@@ -46,9 +89,14 @@ public:
 	UFUNCTION()
 		void StopJump();
 
-	// Trigger fire
+	// Fire Shot
 	UFUNCTION()
-		void Fire();
+		void StartFire();
+	
+	// Stop fire
+	UFUNCTION()
+		void StopFire();
+
 
 	// FPS Camera
 	UPROPERTY(VisibleAnywhere)
@@ -58,11 +106,20 @@ public:
 	UPROPERTY(VisibleDefaultsOnly, Category = Mesh)
 		USkeletalMeshComponent* FPSMesh;
 
-	// Gun muzzle's offset from the camera location.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
-		FVector MuzzleOffset;
+	UPROPERTY(VisibleAnywhere)
+		UHealthComponent* HealthComp;
 
-	// Projectile class to spawn.
-	UPROPERTY(EditDefaultsOnly, Category = Projectile)
-		TSubclassOf<class AFPSProjectile> ProjectileClass;
+
+	//// Gun muzzle's offset from the camera location.
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	//	FVector MuzzleOffset;
+
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	//	float TimeBetweenShots;
+
+	//UPROPERTY(EditDefaultsOnly, Category = Weapon)
+	//	TSubclassOf<UDamageType> DamageType;
+
+	//FTimerHandle InputTimeHandle;
+
 };

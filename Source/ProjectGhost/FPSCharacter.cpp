@@ -1,5 +1,4 @@
 // Fill out your copyright notice in the Description page of Project Settings.
-
 #include "FPSCharacter.h"
 #include "ProjectGhost.h"
 
@@ -9,7 +8,11 @@ AFPSCharacter::AFPSCharacter()
 	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 
-	// We need to find right mesh and camera syntax here!!
+	GetMovementComponent()->GetNavAgentPropertiesRef().bCanCrouch = true;
+
+	GetCapsuleComponent()->SetCollisionResponseToChannel(COLLISION_WEAPON, ECR_Ignore);
+
+	HealthComp = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComp"));
 
 	// Create a first person camera component.
 	FPSCameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
@@ -39,12 +42,31 @@ AFPSCharacter::AFPSCharacter()
 
 	// The owing player doesn't see the regular (third-person) body mesh
 	GetMesh()->SetOwnerNoSee(true);
+
+	ZoomedFOV = 65.0f;
+	ZoomedInterpSpeed = 20;
 }
 
 // Called when the game starts or when spawned
 void AFPSCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	DefaultFOV = FPSCameraComponent->FieldOfView;
+	HealthComp->OnHealthChanged.AddDynamic(this, &AFPSCharacter::OnHealthChanged);
+
+	if (HasAuthority())
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		CurrentWeapon = GetWorld()->SpawnActor<AWeapon>(StarterWeaponClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+		if (CurrentWeapon)
+		{
+			CurrentWeapon->SetOwner(this);
+			CurrentWeapon->AttachToComponent(GetMesh(), FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponAttachSocketName);
+		}
+	}
 }
 
 // Called every frame
@@ -52,6 +74,10 @@ void AFPSCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	float targetFOV = canZoom ? ZoomedFOV : DefaultFOV;
+	float newFOW = FMath::FInterpTo(FPSCameraComponent->FieldOfView, targetFOV, DeltaTime, ZoomedInterpSpeed);
+
+	FPSCameraComponent->SetFieldOfView(newFOW);
 }
 
 // Called to bind functionality to input
@@ -71,8 +97,17 @@ void AFPSCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &AFPSCharacter::StartJump);
 	PlayerInputComponent->BindAction("Jump", IE_Released, this, &AFPSCharacter::StopJump);
 
+	// Crouch bindings.
+	PlayerInputComponent->BindAction("Crouch", IE_Pressed, this, &AFPSCharacter::BeginCrouch);
+	PlayerInputComponent->BindAction("Crouch", IE_Released, this, &AFPSCharacter::EndCrouch);
+
+	// Zoom bindings.
+	PlayerInputComponent->BindAction("Zoom", IE_Pressed, this, &AFPSCharacter::BeginZoom);
+	PlayerInputComponent->BindAction("Zoom", IE_Released, this, &AFPSCharacter::EndZoom);
+
 	// Fire bindings
-	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &AFPSCharacter::Fire);
+	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &AFPSCharacter::StartFire);
+	PlayerInputComponent->BindAction("Fire", IE_Released, this, &AFPSCharacter::StopFire);
 }
 
 void AFPSCharacter::MoveForward(float value)
@@ -87,6 +122,28 @@ void AFPSCharacter::MoveRight(float value)
 	AddMovementInput(Direction, value);
 }
 
+void AFPSCharacter::BeginCrouch()
+{
+	Crouch();
+}
+
+void AFPSCharacter::EndCrouch()
+{
+	UnCrouch();
+}
+
+void AFPSCharacter::BeginZoom()
+{
+	canZoom = true;
+	UE_LOG(LogTemp, Warning, TEXT("Zoom = true"));
+}
+
+void AFPSCharacter::EndZoom()
+{
+	canZoom = false;
+	UE_LOG(LogTemp, Warning, TEXT("Zoom = false"));
+}
+
 void AFPSCharacter::StartJump()
 {
 	bPressedJump = true;
@@ -97,40 +154,45 @@ void AFPSCharacter::StopJump()
 	bPressedJump = false;
 }
 
-void AFPSCharacter::Fire()
+void AFPSCharacter::StartFire()
 {
-	// Attempt to fire a projectile.
-	if (ProjectileClass)
+	if (CurrentWeapon)
 	{
-		// Get the camera transform.
-		FVector CameraLocation;
-		FRotator CameraRotation;
-		GetActorEyesViewPoint(CameraLocation, CameraRotation);
-
-		MuzzleOffset.Set(100.0f, 0.0f, 0.0f);
-
-		// Transform MuzzleOffset from camera space to world space.
-		FVector MuzzleLocation = CameraLocation + FTransform(CameraRotation).TransformVector(MuzzleOffset);
-		// Skew the aim to be slightly upwards.
-		FRotator MuzzleRotation = CameraRotation;
-		MuzzleRotation.Pitch += 10.0f;
-
-		UWorld* World = GetWorld();
-
-		if (World)
-		{
-			FActorSpawnParameters SpawnParams;
-			SpawnParams.Owner = this;
-			SpawnParams.Instigator = GetInstigator();
-
-			// Spawn the projectile at the muzzle.
-			AFPSProjectile* Projectile = World->SpawnActor<AFPSProjectile>(ProjectileClass, MuzzleLocation, MuzzleRotation, SpawnParams);
-			if (Projectile)
-			{
-				// Set the projectile's initial trajectory.
-				FVector LaunchDirection = MuzzleRotation.Vector();
-				Projectile->FireInDirection(LaunchDirection);
-			}
-		}
+		CurrentWeapon->StartFire();
+		UE_LOG(LogTemp, Warning, TEXT("FIRE!!!!"));
 	}
+}
+
+void AFPSCharacter::StopFire()
+{
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->StopFire();
+		UE_LOG(LogTemp, Warning, TEXT("STOP!!!!"));
+	}
+}
+
+void AFPSCharacter::OnHealthChanged(UHealthComponent* OwningHealthComp, float Health, float HealthDelta, const class UDamageType* DamageType,
+	class AController* InstigatedBy, AActor* DamageCauser)
+{
+	if (Health <= 0.0f && !Died)
+	{
+		// Player died
+		Died = true;
+
+		GetMovementComponent()->StopMovementImmediately();
+		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+		DetachFromControllerPendingDestroy();
+
+		SetLifeSpan(10.0f);
+	}
+}
+
+void AFPSCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AFPSCharacter, CurrentWeapon);
+	DOREPLIFETIME(AFPSCharacter, Died);
 }
